@@ -24,8 +24,16 @@ const config = {
   gatewayToken: process.env.GATEWAY_TOKEN || '',
   demoMode: process.env.DEMO_MODE !== 'false',
   
-  // OpenAI API (for voice features)
-  openaiApiKey: process.env.OPENAI_API_KEY || '',
+  // Voice provider selection
+  // TTS_PROVIDER: 'openai' (default) | 'elevenlabs' | 'gemini'
+  // STT_PROVIDER: 'openai' (default) | 'elevenlabs' | 'gemini'
+  ttsProvider: process.env.TTS_PROVIDER || 'openai',
+  sttProvider: process.env.STT_PROVIDER || 'openai',
+
+  // API keys — only the key matching the chosen provider is required
+  openaiApiKey:    process.env.OPENAI_API_KEY    || '',
+  elevenLabsApiKey: process.env.ELEVENLABS_API_KEY || '',
+  geminiApiKey:    process.env.GEMINI_API_KEY    || '',
   
   // Weather widget
   weatherLocation: process.env.WEATHER_LOCATION || 'Kingston,Ontario,Canada',
@@ -50,6 +58,15 @@ const config = {
   
   get hasOpenAI() {
     return this.openaiApiKey.length > 0;
+  },
+
+  // True when the configured TTS provider has an API key set
+  get hasVoice() {
+    switch (this.ttsProvider) {
+      case 'elevenlabs': return this.elevenLabsApiKey.length > 0;
+      case 'gemini':     return this.geminiApiKey.length > 0;
+      default:           return this.openaiApiKey.length > 0;
+    }
   },
 };
 

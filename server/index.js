@@ -267,7 +267,7 @@ app.get('/api/status', requireAuth, rateLimit({ windowMs: 60000, maxRequests: 12
     uptime: process.uptime(),
     bridge: bridge.getStatus(),
     clients: wss.clients.size,
-    voiceEnabled: !!config.openaiApiKey,
+    voiceEnabled: config.hasVoice,
     authenticated: true,
   });
 });
@@ -431,12 +431,12 @@ app.post(
       const validatedAgent = validateAgentName(agent);
       console.log(`[voice] Speaking as ${validatedAgent}: "${text.slice(0, 80)}..."`);
       
-      const audioBuffer = await speak(text, validatedAgent);
+      const { audio, contentType } = await speak(text, validatedAgent);
 
-      res.set('Content-Type', 'audio/mpeg');
-      res.set('Content-Length', audioBuffer.length);
+      res.set('Content-Type', contentType);
+      res.set('Content-Length', audio.length);
       res.set('Cache-Control', 'no-store');
-      res.send(audioBuffer);
+      res.send(audio);
     } catch (err) {
       console.error('[voice] TTS error:', err.message);
       logSecurityEvent('tts_error', { error: err.message, ip: req.ip });
@@ -485,7 +485,7 @@ wss.on('connection', (ws, req) => {
           
           ws.send(JSON.stringify({
             type: 'auth:success',
-            data: { ...bridge.getStatus(), voiceEnabled: !!config.openaiApiKey },
+            data: { ...bridge.getStatus(), voiceEnabled: config.hasVoice },
           }));
           
           logSecurityEvent('ws_authenticated', { ip: clientIp });
@@ -591,7 +591,7 @@ server.listen(config.port, bindAddress, () => {
   console.log('========================================');
   console.log(`[server] Listening on ${proto}://${bindAddress}:${config.port}`);
   console.log(`[server] TLS: ${useHttps ? 'ENABLED' : 'DISABLED (use reverse proxy!)'}`);
-  console.log(`[server] Voice: ${config.openaiApiKey ? 'ENABLED' : 'DISABLED'}`);
+  console.log(`[server] Voice: ${config.hasVoice ? `ENABLED (TTS: ${config.ttsProvider}, STT: ${config.sttProvider})` : 'DISABLED'}`);
   console.log(`[server] Auth: REQUIRED for all API endpoints`);
   console.log(`[server] CORS: ${corsOptions.origin.join(', ')}`);
   console.log('========================================');
