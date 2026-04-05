@@ -1,0 +1,32 @@
+{
+  "name": "openclaw-command-center-secure",
+  "version": "2.0.0",
+  "description": "OpenClaw AI Command Center for Any Platform - SECURE VERSION",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test",
+    "lint": "eslint server/"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "helmet": "^8.0.0",
+    "multer": "^2.1.1",
+    "openai": "^4.78.1",
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "openclaw",
+    "ai",
+    "voice-assistant",
+    "secure"
+  ],
+  "license": "MIT"
+}

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>OpenClaw Command Center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=VT323&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div id="command-center">
+    <!-- Left column: Mascot (top) + Terminal (bottom) -->
+    <div id="zone-mascot" class="zone">
+      <div class="zone-header">
+        <span class="zone-dot"></span>
+        CLAW STATUS
+      </div>
+      <canvas id="mascot-canvas"></canvas>
+      <div id="mascot-label">IDLE</div>
+    </div>
+
+    <div id="zone-terminal" class="zone">
+      <div class="zone-header">
+        <span class="zone-dot"></span>
+        ACTIVITY LOG
+      </div>
+      <div id="terminal-output"></div>
+    </div>
+
+    <!-- Right column: Office -->
+    <div id="zone-office" class="zone">
+      <div class="zone-header">
+        <span class="zone-dot"></span>
+        AGENT WORKSPACE
+      </div>
+      <canvas id="office-canvas"></canvas>
+    </div>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
