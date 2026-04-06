@@ -99,7 +99,7 @@ async function sendToServer(blob) {
   targetAgent = 'main';
 
   try {
-    const res = await fetch('/api/voice/transcribe', {
+    const res = await fetch(`${window.__BASE__ || ''}/api/voice/transcribe`, {
       method: 'POST',
       headers: sessionToken ? { 'Authorization': `Bearer ${sessionToken}` } : {},
       body: form,
@@ -121,7 +121,7 @@ async function sendToServer(blob) {
 
 export async function playSpokenResponse(text, agentId = 'main') {
   try {
-    const res = await fetch('/api/voice/speak', {
+    const res = await fetch(`${window.__BASE__ || ''}/api/voice/speak`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

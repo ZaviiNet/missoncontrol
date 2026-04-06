@@ -1,0 +1,20 @@
+{
+  "id": "command-center",
+  "name": "OpenClaw Command Center",
+  "version": "2.0.0",
+  "description": "Pixel art AI command center with voice interaction and real-time agent monitoring. Tap an agent to talk to it; watch them work in a live office scene.",
+  "entry": "server/index.js",
+  "export": "register",
+  "basePath": "/plugins/command-center",
+  "capabilities": ["http", "websocket", "ui"],
+  "permissions": ["agents", "voice", "system-metrics"],
+  "ui": {
+    "label": "Command Center",
+    "icon": "🖥️",
+    "path": "/plugins/command-center/"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": "https://github.com/ZaviiNet/missoncontrol"
+}

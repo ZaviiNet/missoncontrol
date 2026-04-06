@@ -18,6 +18,77 @@ npm start
 
 That's it. With zero config, the app runs in **demo mode** — full UI with simulated agent activity, no gateway or API keys needed.
 
+---
+
+## Plugin Installation (OpenClaw / NemoClaw Gateway)
+
+Running as a plugin eliminates the need for SSH/remote-access to the Pi.
+The Command Center mounts inside the gateway's existing HTTP server and is
+accessible through the gateway's portal URL — no separate port, no separate
+reverse-proxy entry, and no additional authentication layer required.
+
+### Option A — OpenClaw gateway
+
+1. Copy (or clone) this repo into your OpenClaw plugins directory:
+   ```bash
+   cp -r openclaw-command-center ~/.openclaw/plugins/command-center
+   cd ~/.openclaw/plugins/command-center
+   npm install
+   ```
+
+2. Add the plugin to your OpenClaw gateway config (`~/.openclaw/openclaw.json`):
+   ```json
+   {
+     "plugins": [
+       { "path": "~/.openclaw/plugins/command-center", "basePath": "/plugins/command-center" }
+     ]
+   }
+   ```
+
+3. Restart the gateway. The UI is now at:
+   ```
+   https://<gateway-host>/plugins/command-center/
+   ```
+
+### Option B — NemoClaw gateway
+
+1. Install from the local path (or publish to npm and install by name):
+   ```bash
+   npm install /path/to/openclaw-command-center
+   ```
+
+2. In your NemoClaw config register the plugin by its package name or by
+   importing `nemo.plugin.js` directly:
+   ```js
+   // nemo-config.js
+   import commandCenter from 'openclaw-command-center/plugin';
+   export const plugins = [commandCenter];
+   ```
+
+3. The gateway calls `commandCenter.register(gateway, options)` on startup.
+   The UI is at `https://<gateway-host>/plugins/command-center/`.
+
+### Option C — Programmatic (any Express-based gateway)
+
+```js
+import { register } from './openclaw-command-center/server/index.js';
+
+// gateway.app    — your Express app
+// gateway.server — your http.Server (for WebSocket attachment)
+await register(gateway, { basePath: '/command-center' });
+```
+
+### Plugin environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `PLUGIN_BASE_PATH` | Set automatically by `register()`. Override only if you need to pass it via env instead. |
+
+> **Note:** `PORT`, `BIND_ADDRESS`, and the CORS/TLS options are standalone-only.
+> In plugin mode the gateway controls the server; those variables are ignored.
+
+---
+
 ## What You'll See
 
 The UI has three zones:
@@ -51,10 +122,17 @@ Tap an agent in the office to start recording a voice message for them. Tap agai
 
 | File | Purpose |
 |------|---------|
-| `index.js` | Express + HTTPS/HTTP server, WebSocket, voice routes, agent CLI bridge, weather + health APIs |
-| `openclaw-bridge.js` | Gateway RPC v3 WebSocket connection, event normalization, demo fallback |
+| `index.js` | Express router factory, WebSocket setup, voice routes, agent CLI bridge, weather + health APIs. Exports `register()` for plugin mode; runs `main()` when invoked directly. |
+| `openclaw-bridge.js` | Gateway RPC v3 WebSocket connection, event normalization, demo fallback, injected-connection support (plugin mode) |
 | `voice.js` | Whisper STT + OpenAI TTS with per-agent voice selection |
-| `config.js` | Environment config loader |
+| `config.js` | Environment config loader (includes `PLUGIN_BASE_PATH`) |
+
+### Plugin files (repo root)
+
+| File | Purpose |
+|------|---------|
+| `plugin.json` | OpenClaw plugin manifest — declares capabilities, permissions, and default base path |
+| `nemo.plugin.js` | NemoClaw plugin entry point — wraps `register()` with metadata for auto-discovery |
 
 ### Client (`public/`)
 
