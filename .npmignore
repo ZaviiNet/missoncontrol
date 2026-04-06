@@ -1,0 +1,34 @@
+# Never pack environment files with secrets
+.env
+.env.local
+.env.*.local
+
+# Development files
+.git
+.gitignore
+.idea
+*.swp
+*.swo
+*~
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Test files
+*.test.js
+*.spec.js
+test/
+
+# Build artifacts
+dist/
+build/
+
+# Documentation (optional - include if you prefer smaller tarballs)
+README.md
+SETUP.md
+SECURITY.md
+

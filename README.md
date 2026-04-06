@@ -20,7 +20,7 @@ That's it. With zero config, the app runs in **demo mode** — full UI with simu
 
 ---
 
-## Plugin Installation (OpenClaw / NemoClaw Gateway)
+## Plugin Installation (OpenClaw Gateway)
 
 Running as a plugin eliminates the need for SSH/remote-access to the Pi.
 The Command Center mounts inside the gateway's existing HTTP server and is
@@ -45,30 +45,20 @@ reverse-proxy entry, and no additional authentication layer required.
    }
    ```
 
-3. Restart the gateway. The UI is now at:
+3. Configure the plugin with a `.env` file:
+   ```bash
+   cd ~/.openclaw/plugins/command-center
+   cp .env.example .env
+   # Edit .env and set your API keys, gateway URL, and other settings
+   nano .env
+   ```
+
+4. Restart the gateway. The UI is now at:
    ```
    https://<gateway-host>/plugins/command-center/
    ```
 
-### Option B — NemoClaw gateway
-
-1. Install from the local path (or publish to npm and install by name):
-   ```bash
-   npm install /path/to/openclaw-command-center
-   ```
-
-2. In your NemoClaw config register the plugin by its package name or by
-   importing `nemo.plugin.js` directly:
-   ```js
-   // nemo-config.js
-   import commandCenter from 'openclaw-command-center/plugin';
-   export const plugins = [commandCenter];
-   ```
-
-3. The gateway calls `commandCenter.register(gateway, options)` on startup.
-   The UI is at `https://<gateway-host>/plugins/command-center/`.
-
-### Option C — Programmatic (any Express-based gateway)
+### Option B — Programmatic (any Express-based gateway)
 
 ```js
 import { register } from './openclaw-command-center/server/index.js';
@@ -122,7 +112,7 @@ Tap an agent in the office to start recording a voice message for them. Tap agai
 
 | File | Purpose |
 |------|---------|
-| `index.js` | Express router factory, WebSocket setup, voice routes, agent CLI bridge, weather + health APIs. Exports `register()` for plugin mode; runs `main()` when invoked directly. |
+| `index.js` | Express router factory, WebSocket setup, voice routes, gateway agent relay, weather + health APIs. Exports `register()` for plugin mode; runs `main()` when invoked directly. |
 | `openclaw-bridge.js` | Gateway RPC v3 WebSocket connection, event normalization, demo fallback, injected-connection support (plugin mode) |
 | `voice.js` | Whisper STT + OpenAI TTS with per-agent voice selection |
 | `config.js` | Environment config loader (includes `PLUGIN_BASE_PATH`) |
@@ -131,8 +121,11 @@ Tap an agent in the office to start recording a voice message for them. Tap agai
 
 | File | Purpose |
 |------|---------|
+| `openclaw.plugin.json` | OpenClaw installer manifest filename expected by extension validation (mirror of `plugin.json`) |
 | `plugin.json` | OpenClaw plugin manifest — declares capabilities, permissions, and default base path |
-| `nemo.plugin.js` | NemoClaw plugin entry point — wraps `register()` with metadata for auto-discovery |
+| `openclaw.plugin.js` | OpenClaw plugin entry point wrapper with manifest metadata |
+
+Keep `openclaw.plugin.json` and `plugin.json` synchronized.
 
 ### Client (`public/`)
 
@@ -148,7 +141,7 @@ Tap an agent in the office to start recording a voice message for them. Tap agai
 
 ```
 Browser (tap agent) → MediaRecorder → POST /api/voice/transcribe
-  → Whisper STT → openclaw CLI → agent response
+  → Whisper STT → gateway RPC agent relay → agent response
   → WebSocket broadcast → office animation + TTS playback
 ```
 
@@ -320,17 +313,17 @@ Check that your connect frame uses RPC v3 format (`type: "req"`, `method: "conne
 - Check that `OPENAI_API_KEY` is set in `.env`
 - The server logs `Voice: ENABLED` or `Voice: DISABLED` on startup
 
-### `openclaw: command not found`
+### Agent requests fail with "Gateway not connected"
 
-The binary is at `~/.local/bin/openclaw`. The server sets PATH explicitly, but if running manually, add it to your PATH:
+This plugin relays agent requests through the gateway WebSocket bridge. Verify:
 
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
+- `DEMO_MODE=false`
+- `GATEWAY_URL` points to your OpenClaw gateway
+- `GATEWAY_TOKEN` matches gateway auth configuration
 
 ### Sub-agents responding slowly
 
-Sub-agents should use `--thinking off` (set in `server/index.js`). Their system prompts also instruct them to keep replies to 1-3 sentences.
+Sub-agents are sent with lower reasoning settings by default. You can further reduce latency by using faster models in `config/openclaw.json.example` and keeping short-response rules in agent prompts.
 
 ### Weather widget shows wrong location
 

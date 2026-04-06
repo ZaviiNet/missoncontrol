@@ -159,7 +159,7 @@ export default class OpenClawBridge extends EventEmitter {
   }
 
   sendRpc(method, params) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
     rpcId++;
     this.ws.send(JSON.stringify({
       type: 'req',
@@ -167,6 +167,23 @@ export default class OpenClawBridge extends EventEmitter {
       method,
       params,
     }));
+    return true;
+  }
+
+  /**
+   * Relay a prompt to an agent via gateway RPC.
+   * @param {string} agentId
+   * @param {string} message
+   * @param {string} thinking
+   * @returns {boolean}
+   */
+  sendToAgent(agentId, message, thinking = 'low') {
+    if (config.demoMode || !this.connected) return false;
+    return this.sendRpc('agent.send', {
+      agentId,
+      message,
+      thinking,
+    });
   }
 
   handleGatewayMessage(msg, onAuth) {

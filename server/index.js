@@ -19,11 +19,10 @@
 import express from 'express';
 import { createServer as createHttpServer } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, statfsSync } from 'node:fs';
 import { WebSocketServer } from 'ws';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { execFile } from 'node:child_process';
 import os from 'node:os';
 import multer from 'multer';
 import crypto from 'node:crypto';
@@ -43,6 +42,10 @@ import {
 } from './auth.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// Prevent repeated plugin re-registration from spawning multiple bridge loops.
+let pluginMounted = false;
+let pluginBridgeStarted = false;
 
 // ============================================
 // INPUT VALIDATION
@@ -174,22 +177,36 @@ function buildCommandCenter(basePath) {
     const memPct = Math.round(((totalMem - freeMem) / totalMem) * 100);
     const loadAvg = os.loadavg()[0];
     const cpuPct = Math.min(100, Math.round((loadAvg / cpus.length) * 100));
-
-    execFile('sh', ['-c', "df / --output=pcent | tail -1 | tr -d ' %'; echo; cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null || echo 0"],
-      { timeout: 5000 },
-      (err, stdout) => {
-        const lines = (stdout || '').trim().split('\n');
-        const diskPct = parseInt(lines[0]) || 0;
-        const tempC = Math.round((parseInt(lines[1]) || 0) / 1000);
-        res.json({
-          cpu_pct: cpuPct,
-          mem_pct: memPct,
-          disk_pct: diskPct,
-          temp_c: tempC,
-          uptime: Math.floor(os.uptime()),
-        });
+    let diskPct = 0;
+    try {
+      const fsStats = statfsSync('/');
+      const total = Number(fsStats.blocks || 0);
+      const available = Number(fsStats.bavail || 0);
+      if (total > 0) {
+        diskPct = Math.round(((total - available) / total) * 100);
       }
-    );
+    } catch {
+      diskPct = 0;
+    }
+
+    let tempC = 0;
+    try {
+      const thermalPath = '/sys/class/thermal/thermal_zone0/temp';
+      if (existsSync(thermalPath)) {
+        const raw = readFileSync(thermalPath, 'utf8').trim();
+        tempC = Math.round((parseInt(raw, 10) || 0) / 1000);
+      }
+    } catch {
+      tempC = 0;
+    }
+
+    res.json({
+      cpu_pct: cpuPct,
+      mem_pct: memPct,
+      disk_pct: diskPct,
+      temp_c: tempC,
+      uptime: Math.floor(os.uptime()),
+    });
   });
 
   // Local browser token — no API key needed, localhost only
@@ -275,35 +292,31 @@ function buildCommandCenter(basePath) {
       data: { agent: target, status: 'Processing...', requestId },
     });
 
-    const openclawBin = process.env.HOME + '/.local/bin/openclaw';
     const thinkingLevel = target === 'main' ? 'low' : 'off';
 
-    execFile(
-      openclawBin,
-      ['agent', '--agent', target, '--thinking', thinkingLevel, '--message', sanitizedMessage],
-      {
-        timeout: 90000,
-        env: { ...process.env, PATH: process.env.HOME + '/.local/bin:' + process.env.PATH },
-        maxBuffer: 1024 * 1024,
-      },
-      (err, stdout) => {
-        if (err) {
-          console.error(`[agent] Error from ${target}:`, err.message);
-          logSecurityEvent('agent_error', { agent: target, error: err.message, requestId });
-          broadcast({
-            type: 'agent:error',
-            data: { agent: target, message: 'Agent processing failed', requestId },
-          });
-          return;
-        }
-        const response = stdout.trim().slice(0, 50000);
-        console.log(`[agent] Response from ${target}: "${response.slice(0, 80)}..."`);
-        broadcast({
-          type: 'agent:responding',
-          data: { agent: target, message: response, requestId },
-        });
-      }
-    );
+    if (!bridge || !bridge.connected) {
+      console.error(`[agent] Bridge not connected, cannot send to ${target}`);
+      logSecurityEvent('agent_error', { agent: target, error: 'Bridge not connected', requestId });
+      broadcast({
+        type: 'agent:error',
+        data: { agent: target, message: 'Gateway not connected', requestId },
+      });
+      return;
+    }
+
+    const sent = bridge.sendToAgent(target, sanitizedMessage, thinkingLevel);
+    if (!sent) {
+      console.error(`[agent] Failed to send to ${target} via bridge`);
+      logSecurityEvent('agent_error', { agent: target, error: 'Bridge send failed', requestId });
+      broadcast({
+        type: 'agent:error',
+        data: { agent: target, message: 'Failed to relay message to gateway', requestId },
+      });
+      return;
+    }
+
+    // Agent response is streamed back via gateway events and bridged to clients.
+    console.log(`[agent] Message relayed to gateway for ${target} (request: ${requestId})`);
   }
 
   // ---- VOICE ENDPOINTS ----
@@ -490,41 +503,116 @@ function buildCommandCenter(basePath) {
 // ============================================
 // PLUGIN MODE EXPORT
 //
-// Called by the OpenClaw or NemoClaw gateway:
+// Called by the OpenClaw gateway:
 //
 //   import { register } from 'openclaw-command-center';
-//   await register(gateway, { basePath: '/plugins/command-center' });
+//   register(gateway, { basePath: '/plugins/command-center' });
 //
-// gateway shape:
-//   gateway.app        — Express app (or Router) to mount onto
-//   gateway.server     — Node.js http.Server (for WebSocket attachment)
+// gateway shape (any compatible subset):
+//   gateway.app / gateway.router / gateway.use(...) — Express mount target
+//   gateway.server / gateway.httpServer / gateway.http.server — HTTP server for WebSocket attachment
 //   gateway.basePath   — Optional: override mount path
 //   gateway.connection — Optional: pre-established gateway WS connection
 // ============================================
 
-export async function register(gateway, options = {}) {
-  const basePath = gateway.basePath
+export function register(gateway, options = {}) {
+  const basePath = gateway?.basePath
     || options.basePath
     || config.pluginBasePath
     || '/plugins/command-center';
 
-  console.log(`[plugin] Registering Command Center at ${basePath}`);
+  // Use gateway object as key for idempotency (survives module reloads within same gateway)
+  const registrationKey = Symbol.for(`command-center-registered-${basePath}`);
+  if (gateway && gateway[registrationKey]) {
+    console.log(`[plugin] Command Center already registered for ${basePath}; skipping`);
+    return { ok: true, basePath, reused: true };
+  }
 
-  const { router, initWebSocket, initBridge } = buildCommandCenter(basePath);
+  const pickMountTarget = (ctx) => {
+    const candidates = [
+      ctx?.app,
+      ctx?.router,
+      ctx?.http?.app,
+      ctx?.httpApp,
+      ctx?.runtime?.app,
+      ctx?.runtime?.router,
+      ctx?.runtime?.http?.app,
+      ctx?.runtime?.httpApp,
+      ctx,
+    ];
+    return candidates.find((c) => c && typeof c.use === 'function') || null;
+  };
 
-  // Mount our router on the gateway's Express app at the plugin sub-path.
-  gateway.app.use(basePath, router);
+  const pickServer = (ctx) => {
+    const candidates = [
+      ctx?.server,
+      ctx?.httpServer,
+      ctx?.http?.server,
+    ];
+    return candidates.find((c) => c && typeof c.on === 'function') || null;
+  };
 
-  // Attach our WebSocket server to the gateway's HTTP server.
-  initWebSocket(gateway.server);
+  const pickConnection = (ctx) => ctx?.connection ?? ctx?.gatewayConnection ?? ctx?.ws ?? null;
 
-  // Start the bridge. If the gateway provides a pre-authenticated connection,
-  // pass it in so the bridge skips its own outbound dial.
-  const { start: startBridge } = initBridge(gateway.connection ?? null);
-  startBridge();
+  try {
+    console.log(`[plugin] Registering Command Center at ${basePath}`);
 
-  console.log(`[plugin] Command Center ready — UI: ${basePath}/  WS: ${basePath}/ws`);
+    const { router, initWebSocket, initBridge } = buildCommandCenter(basePath);
+    const mountTarget = pickMountTarget(gateway);
+    let mounted = false;
+
+    if (mountTarget) {
+      // Traditional Express app.use mount
+      mountTarget.use(basePath, router);
+      mounted = true;
+      console.log('[plugin] Mounted routes via Express app.use()');
+    } else if (gateway && typeof gateway.registerHttpRoute === 'function') {
+      // OpenClaw plugin API mount - registerHttpRoute(path, handler)
+      try {
+        gateway.registerHttpRoute(basePath, router);
+        mounted = true;
+        console.log('[plugin] Mounted routes via gateway.registerHttpRoute()');
+      } catch (err) {
+        console.warn(`[plugin] registerHttpRoute failed: ${err?.message}`);
+      }
+    }
+
+    if (!mounted) {
+      console.warn(`[plugin] No HTTP mount available; skipping route mount for ${basePath}`);
+      return { ok: true, basePath, mounted: false, skipped: 'no_mount_target' };
+    }
+
+    // Mark as registered on the gateway object (persists across module reloads)
+    if (gateway) {
+      gateway[registrationKey] = true;
+    }
+
+    // Setup WebSocket if server available
+    const server = pickServer(gateway);
+    if (server) {
+      initWebSocket(server);
+    } else {
+      console.warn('[plugin] No HTTP server handle on gateway; WebSocket disabled');
+    }
+
+    // Start bridge (only once per gateway instance)
+    const { start: startBridge } = initBridge(pickConnection(gateway));
+    const started = startBridge();
+    if (started && typeof started.then === 'function') {
+      started.catch((err) => {
+        console.error('[plugin] Bridge start failed:', err?.message);
+      });
+    }
+
+    const wsLabel = server ? `${basePath}/ws` : 'disabled';
+    console.log(`[plugin] Command Center ready — UI: ${basePath}/  WS: ${wsLabel}`);
+    return { ok: true, basePath, ui: `${basePath}/`, ws: wsLabel, mounted: true };
+  } catch (err) {
+    console.error('[plugin] Registration failed:', err?.message);
+    return { ok: false, error: err?.message };
+  }
 }
+
 
 // ============================================
 // STANDALONE MODE

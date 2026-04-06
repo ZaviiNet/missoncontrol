@@ -5,7 +5,15 @@
  * Never hardcode secrets in this file!
  */
 
-import 'dotenv/config';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { config as loadEnv } from 'dotenv';
+
+// Load .env from plugin directory (not just cwd), so it works in OpenClaw containers
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pluginRoot = dirname(__dirname);
+const envPath = join(pluginRoot, '.env');
+loadEnv({ path: envPath });
 
 const config = {
   // Server configuration
@@ -28,6 +36,8 @@ const config = {
   gatewayUrl: process.env.GATEWAY_URL || 'ws://127.0.0.1:18789',
   gatewayToken: process.env.GATEWAY_TOKEN || '',
   demoMode: process.env.DEMO_MODE !== 'false',
+  // CLI binary used for local agent invocations in plugin mode
+  openclawBin: process.env.OPENCLAW_BIN || 'openclaw',
   
   // Voice provider selection
   // TTS_PROVIDER: 'openai' (default) | 'elevenlabs' | 'gemini'

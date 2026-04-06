@@ -1,12 +1,12 @@
 {
   "name": "openclaw-command-center-secure",
   "version": "2.0.0",
-  "description": "OpenClaw AI Command Center for Any Platform - SECURE VERSION. Runs standalone or as an OpenClaw/NemoClaw gateway plugin.",
+  "description": "OpenClaw AI Command Center for Any Platform - SECURE VERSION. Runs standalone or as an OpenClaw gateway plugin.",
   "type": "module",
   "main": "server/index.js",
   "exports": {
     ".": "./server/index.js",
-    "./plugin": "./nemo.plugin.js"
+    "./plugin": "./openclaw.plugin.js"
   },
   "scripts": {
     "start": "node server/index.js",
@@ -14,12 +14,9 @@
     "test": "node --test",
     "lint": "eslint server/"
   },
-  "nemoclaw": {
-    "plugin": "./nemo.plugin.js",
-    "id": "command-center",
-    "basePath": "/plugins/command-center",
-    "capabilities": ["http", "websocket", "ui"],
-    "permissions": ["agents", "voice", "system-metrics"]
+  "openclaw": {
+    "extensions": ["./server/index.js"],
+    "hooks": {}
   },
   "dependencies": {
     "@elevenlabs/elevenlabs-js": "^2.41.1",
@@ -37,7 +34,6 @@
   },
   "keywords": [
     "openclaw",
-    "nemoclaw",
     "ai",
     "voice-assistant",
     "plugin",
