@@ -27,13 +27,57 @@ export default class OpenClawBridge extends EventEmitter {
     this.maxConnectAttempts = 3;
   }
 
-  start() {
+  /**
+   * Start the bridge.
+   *
+   * In plugin mode the gateway can pass in a pre-authenticated connection
+   * (any EventEmitter with 'message', 'close', and 'error' events and a
+   * compatible send() method).  When provided, the bridge uses that
+   * connection directly and skips its own outbound dial and demo fallback.
+   *
+   * @param {EventEmitter|null} injectedConnection
+   */
+  start(injectedConnection = null) {
+    if (injectedConnection) {
+      this._useInjectedConnection(injectedConnection);
+      return;
+    }
     if (config.demoMode) {
       console.log('[bridge] Starting in DEMO mode');
       this.startDemo();
       return;
     }
     this.connectGateway();
+  }
+
+  // --- Plugin mode: use a gateway-provided connection ---
+
+  _useInjectedConnection(connection) {
+    console.log('[bridge] Using gateway-injected connection (plugin mode)');
+    this.ws = connection;
+    this.connected = true;
+    this.emit('connected', { mode: 'plugin' });
+
+    connection.on('message', (raw) => {
+      try {
+        const msg = JSON.parse(raw.toString());
+        const normalized = this.normalizeEvent(msg);
+        if (normalized) this.emit('event', normalized);
+      } catch (err) {
+        console.error('[bridge] Failed to parse injected message:', err.message);
+      }
+    });
+
+    connection.on('close', () => {
+      console.log('[bridge] Injected connection closed');
+      this.connected = false;
+      this.ws = null;
+      this.emit('disconnected');
+    });
+
+    connection.on('error', (err) => {
+      console.error('[bridge] Injected connection error:', err.message);
+    });
   }
 
   stop() {

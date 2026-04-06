@@ -19,6 +19,11 @@ const config = {
     ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())
     : ['http://localhost:3000'],
   
+  // Plugin mode — base path when mounted inside a gateway
+  // Set automatically by register() or via PLUGIN_BASE_PATH env variable.
+  // Leave empty for standalone mode.
+  pluginBasePath: process.env.PLUGIN_BASE_PATH || '',
+
   // OpenClaw Gateway
   gatewayUrl: process.env.GATEWAY_URL || 'ws://127.0.0.1:18789',
   gatewayToken: process.env.GATEWAY_TOKEN || '',

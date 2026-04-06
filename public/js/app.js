@@ -143,7 +143,10 @@ let reconnectTimer = null;
 
 function connect() {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const url = `${protocol}//${location.host}`;
+  // In plugin mode, the WebSocket lives at <basePath>/ws (e.g. /plugins/command-center/ws).
+  // In standalone mode, __BASE__ is '' so the WS connects to the server root.
+  const wsPath = (window.__BASE__ || '') ? (window.__BASE__ || '') + '/ws' : '';
+  const url = `${protocol}//${location.host}${wsPath}`;
 
   ws = new WebSocket(url);
 
@@ -154,7 +157,7 @@ function connect() {
       reconnectTimer = null;
     }
     try {
-      const resp = await fetch('/api/auth/local-token');
+      const resp = await fetch(`${window.__BASE__}/api/auth/local-token`);
       if (resp.ok) {
         const { token } = await resp.json();
         ws.send(JSON.stringify({ type: 'auth', token }));
