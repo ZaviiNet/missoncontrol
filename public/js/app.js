@@ -3,13 +3,6 @@ import * as mascot from './mascot.js';
 import * as office from './office.js';
 import * as voice from './voice.js';
 
-// Detect the plugin base path from the current URL.
-// In standalone mode this resolves to '' (empty string).
-// In plugin mode (e.g. served at /plugins/command-center/) it resolves to
-// '/plugins/command-center', allowing all API and WebSocket URLs to be
-// correctly prefixed without any server-side configuration.
-window.__BASE__ = window.location.pathname.replace(/\/?(?:index\.html)?$/, '');
-
 // --- Init ---
 
 terminal.init('terminal-output');

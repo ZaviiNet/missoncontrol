@@ -84,9 +84,10 @@ function validateMessage(message) {
 
 function buildCommandCenter(basePath) {
   // Shared mutable context — populated by initWebSocket / initBridge below.
-  // Route handlers capture these via closure; they are always set before the
-  // first request arrives because listen() / register() calls them first.
-  let broadcast = null;
+  // broadcast is initialized to a no-op so routes can call it safely during
+  // the brief window between router mount and WebSocket initialization.
+  // It is replaced with the real implementation by initWebSocket().
+  let broadcast = () => 0;
   let wss = null;
   let bridge = null;
 
@@ -140,18 +141,17 @@ function buildCommandCenter(basePath) {
   });
 
   // ---- STATIC FILES ----
-  // Serve static files. index.html is excluded from express.static so we can
-  // inject window.__BASE__ into it before sending.
+  // Serve js/config.js dynamically so the frontend knows the plugin base path
+  // without requiring an inline script (which would need 'unsafe-inline' in CSP).
+  router.get('/js/config.js', (req, res) => {
+    res.type('application/javascript');
+    res.set('Cache-Control', 'no-store');
+    res.send(`window.__BASE__ = ${JSON.stringify(basePath)};`);
+  });
 
   router.get(['/', '/index.html'], (req, res) => {
     try {
-      let html = readFileSync(join(publicDir, 'index.html'), 'utf8');
-      // Inject the base path so frontend JS can prefix all API/WS URLs.
-      html = html.replace(
-        '<head>',
-        `<head>\n  <script>window.__BASE__ = ${JSON.stringify(basePath)};</script>`,
-      );
-      res.type('html').send(html);
+      res.sendFile(join(publicDir, 'index.html'));
     } catch (err) {
       console.error('[server] Failed to serve index.html:', err.message);
       res.status(500).send('Internal Server Error');
@@ -221,8 +221,8 @@ function buildCommandCenter(basePath) {
   router.get('/api/status', requireAuth, rateLimit({ windowMs: 60000, maxRequests: 120 }), (req, res) => {
     res.json({
       uptime: process.uptime(),
-      bridge: bridge?.getStatus(),
-      clients: wss?.clients.size ?? 0,
+      bridge: bridge ? bridge.getStatus() : { connected: false, mode: 'initializing' },
+      clients: wss ? wss.clients.size : 0,
       voiceEnabled: config.hasVoice,
       authenticated: true,
     });
@@ -270,7 +270,7 @@ function buildCommandCenter(basePath) {
 
     console.log(`[agent] Sending to ${target}: "${sanitizedMessage.slice(0, 80)}..." (request: ${requestId})`);
 
-    broadcast?.({
+    broadcast({
       type: 'agent:thinking',
       data: { agent: target, status: 'Processing...', requestId },
     });
@@ -290,7 +290,7 @@ function buildCommandCenter(basePath) {
         if (err) {
           console.error(`[agent] Error from ${target}:`, err.message);
           logSecurityEvent('agent_error', { agent: target, error: err.message, requestId });
-          broadcast?.({
+          broadcast({
             type: 'agent:error',
             data: { agent: target, message: 'Agent processing failed', requestId },
           });
@@ -298,7 +298,7 @@ function buildCommandCenter(basePath) {
         }
         const response = stdout.trim().slice(0, 50000);
         console.log(`[agent] Response from ${target}: "${response.slice(0, 80)}..."`);
-        broadcast?.({
+        broadcast({
           type: 'agent:responding',
           data: { agent: target, message: response, requestId },
         });
@@ -326,7 +326,7 @@ function buildCommandCenter(basePath) {
           throw new Error('Invalid transcription result');
         }
         console.log(`[voice] Transcribed: "${text.slice(0, 100)}"`);
-        broadcast?.({ type: 'voice:transcription', data: { text, agent: targetAgent, timestamp: Date.now(), requestId } });
+        broadcast({ type: 'voice:transcription', data: { text, agent: targetAgent, timestamp: Date.now(), requestId } });
         sendToAgent(targetAgent, text, requestId);
         res.json({ text, agent: targetAgent, requestId });
       } catch (err) {
@@ -414,7 +414,7 @@ function buildCommandCenter(basePath) {
               clearTimeout(authTimeout);
               ws.send(JSON.stringify({
                 type: 'auth:success',
-                data: { ...(bridge?.getStatus() ?? {}), voiceEnabled: config.hasVoice },
+                data: { ...(bridge ? bridge.getStatus() : { connected: false, mode: 'initializing' }), voiceEnabled: config.hasVoice },
               }));
               logSecurityEvent('ws_authenticated', { ip: clientIp });
               console.log(`[ws] Client authenticated from ${clientIp}`);
@@ -468,15 +468,15 @@ function buildCommandCenter(basePath) {
 
     bridge.on('connected', (info) => {
       console.log(`[bridge] Connected (${info.mode} mode)`);
-      broadcast?.({ type: 'bridge:connected', data: info });
+      broadcast({ type: 'bridge:connected', data: info });
     });
 
     bridge.on('disconnected', () => {
-      broadcast?.({ type: 'bridge:disconnected' });
+      broadcast({ type: 'bridge:disconnected' });
     });
 
     bridge.on('event', (event) => {
-      broadcast?.(event);
+      broadcast(event);
     });
 
     return {
@@ -542,7 +542,7 @@ async function main() {
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'"], // inline script injected by index.html route
+        scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", "data:", "https:"],
         connectSrc: ["'self'", "wss:", "https:"],
