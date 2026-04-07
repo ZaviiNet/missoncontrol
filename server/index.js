@@ -36,6 +36,7 @@ import {
   validateSession,
   logSecurityEvent,
   getSecurityLog,
+  AUTH_DISABLED,
 } from './auth.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -459,19 +460,27 @@ const wss = new WebSocketServer({ server });
 
 wss.on('connection', (ws, req) => {
   const clientIp = req.socket.remoteAddress;
-  let isAuthenticated = false;
+  let isAuthenticated = AUTH_DISABLED; // skip auth if disabled
   let sessionToken = null;
 
   console.log(`[ws] Client connected from ${clientIp} (total: ${wss.clients.size})`);
 
-  // Send auth required message
-  ws.send(JSON.stringify({
-    type: 'auth:required',
-    data: { message: 'Please authenticate with your session token' },
-  }));
+  if (AUTH_DISABLED) {
+    // No auth required — immediately confirm connection
+    ws.send(JSON.stringify({
+      type: 'auth:success',
+      data: { ...bridge.getStatus(), voiceEnabled: config.hasVoice },
+    }));
+  } else {
+    // Send auth required message
+    ws.send(JSON.stringify({
+      type: 'auth:required',
+      data: { message: 'Please authenticate with your session token' },
+    }));
+  }
 
   // Authentication timeout - disconnect after 10 seconds if not authenticated
-  const authTimeout = setTimeout(() => {
+  const authTimeout = AUTH_DISABLED ? null : setTimeout(() => {
     if (!isAuthenticated) {
       ws.send(JSON.stringify({ type: 'auth:timeout', data: { message: 'Authentication timeout' } }));
       ws.close(1008, 'Authentication timeout');
@@ -520,7 +529,7 @@ wss.on('connection', (ws, req) => {
 
   ws.on('close', () => {
     console.log(`[ws] Client disconnected from ${clientIp} (total: ${wss.clients.size})`);
-    clearTimeout(authTimeout);
+    if (authTimeout) clearTimeout(authTimeout);
   });
 
   ws.on('error', (err) => {
@@ -598,12 +607,16 @@ server.listen(config.port, bindAddress, () => {
   console.log(`[server] Listening on ${proto}://${bindAddress}:${config.port}`);
   console.log(`[server] TLS: ${useHttps ? 'ENABLED' : 'DISABLED (use reverse proxy!)'}`);
   console.log(`[server] Voice: ${config.hasVoice ? `ENABLED (TTS: ${config.ttsProvider}, STT: ${config.sttProvider})` : 'DISABLED'}`);
-  console.log(`[server] Auth: REQUIRED for all API endpoints`);
+  console.log(`[server] Auth: ${AUTH_DISABLED ? 'DISABLED (DISABLE_AUTH=true — local mode)' : 'REQUIRED for all API endpoints'}`);
   console.log(`[server] CORS: ${corsOptions.origin.join(', ')}`);
   console.log('========================================');
   
   if (!useHttps && bindAddress !== '127.0.0.1') {
     console.warn('[server] WARNING: Running HTTP on non-localhost. Use HTTPS or reverse proxy!');
+  }
+  
+  if (AUTH_DISABLED) {
+    console.warn('[server] ⚠️  WARNING: Authentication is DISABLED (DISABLE_AUTH=true). Do NOT expose this server to the internet!');
   }
   
   bridge.start();
