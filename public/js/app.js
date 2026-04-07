@@ -9,6 +9,9 @@ terminal.init('terminal-output');
 mascot.init('mascot-canvas');
 office.init('office-canvas');
 
+// WebAudio must be resumed from a user gesture in modern browsers.
+window.addEventListener('pointerdown', () => office.unlockAudio(), { once: true });
+
 voice.init({
   onTranscription: (text, agent) => {
     terminal.log(`[you → ${agent || 'main'}] ${text}`, 'agent', true);
@@ -140,6 +143,40 @@ bootSequence();
 
 let ws = null;
 let reconnectTimer = null;
+let sessionToken = null;
+
+function getStoredApiKey() {
+  const queryKey = new URLSearchParams(location.search).get('apiKey');
+  if (queryKey) {
+    localStorage.setItem('openclaw_api_key', queryKey);
+    return queryKey;
+  }
+  return localStorage.getItem('openclaw_api_key') || '';
+}
+
+async function fetchSessionToken() {
+  if (sessionToken) return sessionToken;
+
+  const localResp = await fetch('/api/auth/local-token');
+  if (localResp.ok) {
+    const { token } = await localResp.json();
+    sessionToken = token;
+    return token;
+  }
+
+  const apiKey = getStoredApiKey();
+  if (!apiKey) return null;
+
+  const sessionResp = await fetch('/api/auth/session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ apiKey }),
+  });
+  if (!sessionResp.ok) return null;
+  const { sessionToken: exchangedToken } = await sessionResp.json();
+  sessionToken = exchangedToken || null;
+  return sessionToken;
+}
 
 function connect() {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -154,17 +191,16 @@ function connect() {
       reconnectTimer = null;
     }
     try {
-      const resp = await fetch('/api/auth/local-token');
-      if (resp.ok) {
-        const { token } = await resp.json();
-        ws.send(JSON.stringify({ type: 'auth', token }));
-        voice.setToken(token);
-        office.setToken(token);
-      } else {
-        console.error('[ws] Failed to fetch local token:', resp.status);
+      const token = await fetchSessionToken();
+      if (!token) {
+        terminal.log('[auth] No session token. Use local access or pass ?apiKey=<key>', 'error', true);
+        return;
       }
+      ws.send(JSON.stringify({ type: 'auth', token }));
+      voice.setToken(token);
+      office.setToken(token);
     } catch (err) {
-      console.error('[ws] Failed to fetch local token:', err);
+      console.error('[ws] Failed to fetch session token:', err);
     }
   };
 

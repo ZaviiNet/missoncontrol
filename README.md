@@ -86,6 +86,7 @@ See `.env.example` for the full template.
 | `GATEWAY_TOKEN` | — | Gateway auth token (required when `DEMO_MODE=false`) |
 | `OPENAI_API_KEY` | — | Enables Whisper STT + TTS voice features |
 | `WEATHER_LOCATION` | `Kingston,Ontario,Canada` | City,Region,Country for the weather widget (via wttr.in) |
+| `ALLOW_LAN_LOCAL_TOKEN` | `true` | Allow `/api/auth/local-token` for private LAN clients in standalone mode |
 
 ## Agent Configuration
 
@@ -241,6 +242,16 @@ Check that your connect frame uses RPC v3 format (`type: "req"`, `method: "conne
 
 - Check that `OPENAI_API_KEY` is set in `.env`
 - The server logs `Voice: ENABLED` or `Voice: DISABLED` on startup
+
+### Remote browser shows auth/websocket errors
+
+When not connecting from localhost, you can bootstrap auth from an API key:
+
+```bash
+https://<HOST>:3000/?apiKey=<YOUR_API_KEY>
+```
+
+The browser stores the key in local storage and exchanges it for a session token automatically.
 
 ### `openclaw: command not found`
 

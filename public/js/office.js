@@ -49,6 +49,7 @@ let sessionStats = { exchanges: 0, tasksCompleted: 0, startTime: Date.now() };
 
 // Ambient sound system
 let audioCtx = null;
+let audioUnlocked = false;
 let soundCooldowns = { click: 0, ding: 0, chime: 0 };
 
 // Furniture positions
@@ -133,9 +134,12 @@ let sessionToken = null;
 
 export function setToken(token) {
   sessionToken = token;
+  // Weather endpoint is protected; fetch as soon as auth is available.
+  fetchWeather();
 }
 
 async function fetchWeather() {
+  if (!sessionToken) return;
   try {
     const r = await fetch('/api/weather', {
       headers: sessionToken ? { 'Authorization': `Bearer ${sessionToken}` } : {},
@@ -211,7 +215,7 @@ export function update(dt) {
   // Fetch timers
   weatherFetchTimer += dt;
   healthFetchTimer += dt;
-  if (weatherFetchTimer > 300000) { weatherFetchTimer = 0; fetchWeather(); }
+  if (weatherFetchTimer > 300000) { weatherFetchTimer = 0; if (sessionToken) fetchWeather(); }
   if (healthFetchTimer > 10000) { healthFetchTimer = 0; fetchHealth(); } // every 10s
 
   // Sound cooldowns
@@ -931,12 +935,18 @@ function truncate(s, max) { if (!s) return ''; return s.length>max?s.slice(0,max
 // --- Ambient Sound System ---
 
 function ensureAudio() {
+  if (!audioUnlocked) return null;
   if (!audioCtx) {
     try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
     catch (e) { return null; }
   }
   if (audioCtx.state === 'suspended') audioCtx.resume();
   return audioCtx;
+}
+
+export function unlockAudio() {
+  audioUnlocked = true;
+  ensureAudio();
 }
 
 function playKeyClick() {
