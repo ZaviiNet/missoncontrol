@@ -521,7 +521,17 @@ export function register(gateway, options = {}) {
     || config.pluginBasePath
     || '/plugins/command-center';
 
-  // Use gateway object as key for idempotency (survives module reloads within same gateway)
+  // Module-level guard: prevents repeated registration when the gateway calls
+  // register() multiple times before its HTTP server is ready (e.g. during
+  // startup retry loops).  This is the primary guard; the per-gateway Symbol
+  // below handles the less-common multi-gateway scenario.
+  if (pluginMounted) {
+    console.log(`[plugin] Command Center already registered (global guard); skipping`);
+    return { ok: true, basePath, reused: true };
+  }
+
+  // Per-gateway object guard: survives module reloads within the same gateway
+  // instance (Symbol.for produces the same symbol across reloads).
   const registrationKey = Symbol.for(`command-center-registered-${basePath}`);
   if (gateway && gateway[registrationKey]) {
     console.log(`[plugin] Command Center already registered for ${basePath}; skipping`);
@@ -568,8 +578,25 @@ export function register(gateway, options = {}) {
       console.log('[plugin] Mounted routes via Express app.use()');
     } else if (gateway && typeof gateway.registerHttpRoute === 'function') {
       // OpenClaw plugin API mount - registerHttpRoute(path, handler)
+      //
+      // Unlike app.use(prefix, router), registerHttpRoute does NOT strip the
+      // basePath prefix from req.url before invoking the handler.  Wrap the
+      // router with a thin middleware that performs the strip so that the
+      // Express route matchers (e.g. GET '/') work correctly regardless of
+      // whether the gateway performs its own prefix stripping.
+      const routeHandler = (req, res, next) => {
+        const url = req.url || '/';
+        if (basePath && url.startsWith(basePath)) {
+          req.url = url.slice(basePath.length) || '/';
+          return router(req, res, (err) => {
+            req.url = url; // restore for upstream handlers / logging
+            next(err);
+          });
+        }
+        return router(req, res, next);
+      };
       try {
-        gateway.registerHttpRoute(basePath, router);
+        gateway.registerHttpRoute(basePath, routeHandler);
         mounted = true;
         console.log('[plugin] Mounted routes via gateway.registerHttpRoute()');
       } catch (err) {
@@ -582,7 +609,8 @@ export function register(gateway, options = {}) {
       return { ok: true, basePath, mounted: false, skipped: 'no_mount_target' };
     }
 
-    // Mark as registered on the gateway object (persists across module reloads)
+    // Mark as registered — both the module-level flag and the per-gateway Symbol.
+    pluginMounted = true;
     if (gateway) {
       gateway[registrationKey] = true;
     }
