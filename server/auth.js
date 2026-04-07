@@ -11,6 +11,9 @@ const API_KEYS = (process.env.API_KEYS || '')
   .map(k => k.trim())
   .filter(k => k.length > 0);
 
+// When true, all authentication checks are skipped (local development only!)
+export const AUTH_DISABLED = process.env.DISABLE_AUTH === 'true';
+
 // Session store for WebSocket connections
 const sessions = new Map();
 
@@ -28,6 +31,7 @@ export function generateSessionToken() {
  * Validate API key
  */
 export function isValidApiKey(apiKey) {
+  if (AUTH_DISABLED) return true;
   if (!API_KEYS.length) {
     console.warn('[auth] WARNING: No API keys configured! Set API_KEYS environment variable.');
     return false; // Fail closed when no keys configured
@@ -54,6 +58,7 @@ export function createSession(apiKey) {
  * Validate WebSocket session
  */
 export function validateSession(token) {
+  if (AUTH_DISABLED) return true;
   const session = sessions.get(token);
   if (!session) return false;
   
@@ -132,6 +137,11 @@ export function rateLimit(options = {}) {
  * API Key authentication middleware for HTTP routes
  */
 export function requireAuth(req, res, next) {
+  if (AUTH_DISABLED) {
+    req.authenticated = true;
+    return next();
+  }
+
   // Check header first
   let credential = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
 
